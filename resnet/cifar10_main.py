@@ -160,6 +160,7 @@ class Cifar10Model(resnet.Model):
         block_sizes=[num_blocks] * 3,
         block_strides=[1, 2, 2],
         final_size=64,
+        squeeze_excitation_fn=squeeze_excitation_fn,
         data_format=data_format)
 
 
@@ -206,7 +207,7 @@ def cifar10_model_fn(features, labels, mode, params):
                                 learning_rate_fn=learning_rate_fn,
                                 momentum=0.9,
                                 data_format=params['data_format'],
-                                squeeze_excitation_fn=,
+                                squeeze_excitation_fn=squeeze_excitation_fn,
                                 loss_filter_fn=loss_filter_fn)
 
 

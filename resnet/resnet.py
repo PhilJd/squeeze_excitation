@@ -150,52 +150,58 @@ def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format):
 
 
 def avg_aggregation(x, data_format):
-  ax = [2, 3] if data_format=="channels_first" else [1, 2]
+  ax = [2, 3] if data_format == "channels_first" else [1, 2]
   channel_mean = tf.reduce_mean(x, axis=ax, name='channel_mean')
-  tf.summary.scalar('aggregation_mean', channel_mean)
+  tf.summary.tensor_summary('aggregation_mean', channel_mean)
   # variance is not used here, but out of interest, we add it to the summary
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[2,3])
-  with tf.control_dependencies([variance])
+  mean = tf.reduce_mean(x, axis=ax, name='channel_mean', keepdims=True)
+  variance = tf.reduce_mean(tf.square(x - mean), axis=ax)
+  with tf.control_dependencies([variance]):
     channel_mean = tf.identity(channel_mean)
-  tf.summary.scalar('aggregation_variance(unused)', variance)
+  tf.summary.tensor_summary('aggregation_variance_unused', variance)
   return channel_mean
 
 
 def max_aggregation(x, data_format):
-  ax = [2, 3] if data_format=="channels_first" else [1, 2]
+  ax = [2, 3] if data_format == "channels_first" else [1, 2]
   channel_max = tf.reduce_max(x, axis=ax, name="channel_max")
-  tf.summary.scalar('aggregation_max', channel_max)
+  tf.summary.tensor_summary('aggregation_max', channel_max)
   return channel_max
 
 
 def mean_variance_aggregation(x, data_format):
-  ax = [2, 3] if data_format=="channels_first" else [1, 2]
-  mean = tf.reduce_mean(x, axis=ax)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=[2,3])
-  tf.summary.scalar('aggregation_mean', mean)
-  tf.summary.scalar('aggregation_variance', variance)
-  return tf.concat((mean, variance), axis=-1)
+  ax = [2, 3] if data_format == "channels_first" else [1, 2]
+  mean = tf.reduce_mean(x, axis=ax, keepdims=True)
+  mean_squeezed = tf.reduce_mean(x, axis=ax, name='channel_mean')
+  variance = tf.reduce_mean(tf.square(x - mean), axis=ax)
+  tf.summary.tensor_summary('aggregation_mean', mean_squeezed)
+  tf.summary.tensor_summary('aggregation_variance', variance)
+  return tf.concat((mean_squeezed, variance), axis=-1)
 
 
 def squeeze_and_excitation(x, aggregation_fn, data_format):
   """Squeeze and excitation block."""
-  ratio = 16 
+  ratio = 16
   squeeze = aggregation_fn(x, data_format)
-  num_channels = tf.shape(squeeze)[1]
+  num_channels = x.shape[1 if data_format == "channels_first" else 3]
   squeeze = tf.layers.dense(squeeze, num_channels // ratio, tf.nn.relu)
-  return tf.layers.dense(squeeze, num_channels, tf.nn.sigmoid)
+  excitation = tf.layers.dense(squeeze, num_channels, tf.nn.sigmoid)
+  expand_axis = 2 if data_format == "channels_first" else 1
+  for i in range(2):
+    excitation = tf.expand_dims(excitation, expand_axis)
+  return excitation
 
 
 def avg_squeeze_and_excitation(x, data_format):
-  return squeeze_and_excitation(x, avg_aggregation, data_format):
+  return squeeze_and_excitation(x, avg_aggregation, data_format)
 
 
 def mean_var_squeeze_and_excitation(x, data_format):
-  return squeeze_and_excitation(x, mean_variance_aggregation, data_format):
+  return squeeze_and_excitation(x, mean_variance_aggregation, data_format)
 
 
 def max_squeeze_and_excitation(x, data_format):
-  return squeeze_and_excitation(x, max_aggregation, data_format):
+  return squeeze_and_excitation(x, max_aggregation, data_format)
 
 
 def building_block(inputs, filters, training, projection_shortcut, strides,
@@ -235,7 +241,7 @@ def building_block(inputs, filters, training, projection_shortcut, strides,
       data_format=data_format)
 
   if squeeze_and_excitation:
-    inputs = squeeze_and_excitation(inputs, data_format)
+    inputs = inputs * squeeze_and_excitation(inputs, data_format)
 
   
   return inputs + shortcut
