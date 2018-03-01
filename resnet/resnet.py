@@ -152,30 +152,36 @@ def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format):
 def avg_aggregation(x, data_format):
   ax = [2, 3] if data_format == "channels_first" else [1, 2]
   channel_mean = tf.reduce_mean(x, axis=ax, name='channel_mean')
-  tf.summary.tensor_summary('aggregation_mean', channel_mean)
+  tf.summary.histogram('aggregation_mean', channel_mean)
   # variance is not used here, but out of interest, we add it to the summary
-  mean = tf.reduce_mean(x, axis=ax, name='channel_mean', keepdims=True)
-  variance = tf.reduce_mean(tf.square(x - mean), axis=ax)
+  mean_expanded = expand_spatial_dims(mean, data_format)
+  variance = tf.reduce_mean(tf.square(x - mean_expanded), axis=ax)
   with tf.control_dependencies([variance]):
     channel_mean = tf.identity(channel_mean)
-  tf.summary.tensor_summary('aggregation_variance_unused', variance)
+  tf.summary.histogram('aggregation_variance_unused', variance)
   return channel_mean
 
 
 def max_aggregation(x, data_format):
   ax = [2, 3] if data_format == "channels_first" else [1, 2]
   channel_max = tf.reduce_max(x, axis=ax, name="channel_max")
-  tf.summary.tensor_summary('aggregation_max', channel_max)
+  tf.summary.histogram('aggregation_max', channel_max)
   return channel_max
+
+
+def expand_spatial_dims(x, data_format):
+  expand_axis = 2 if data_format == "channels_first" else 1
+  x = tf.expand_dims(x, expand_axis)
+  return tf.expand_dims(x, expand_axis)
 
 
 def mean_variance_aggregation(x, data_format):
   ax = [2, 3] if data_format == "channels_first" else [1, 2]
-  mean = tf.reduce_mean(x, axis=ax, keepdims=True)
-  mean_squeezed = tf.reduce_mean(x, axis=ax, name='channel_mean')
-  variance = tf.reduce_mean(tf.square(x - mean), axis=ax)
-  tf.summary.tensor_summary('aggregation_mean', mean_squeezed)
-  tf.summary.tensor_summary('aggregation_variance', variance)
+  mean = tf.reduce_mean(x, axis=ax, name='channel_mean')
+  mean_expanded = expand_spatial_dims(mean, data_format)
+  variance = tf.reduce_mean(tf.square(x - mean_expanded), axis=ax)
+  tf.summary.histogram('aggregation_mean', mean)
+  tf.summary.histogram('aggregation_variance', variance)
   return tf.concat((mean_squeezed, variance), axis=-1)
 
 
@@ -186,10 +192,7 @@ def squeeze_and_excitation(x, aggregation_fn, data_format):
   num_channels = x.shape[1 if data_format == "channels_first" else 3]
   squeeze = tf.layers.dense(squeeze, num_channels // ratio, tf.nn.relu)
   excitation = tf.layers.dense(squeeze, num_channels, tf.nn.sigmoid)
-  expand_axis = 2 if data_format == "channels_first" else 1
-  for i in range(2):
-    excitation = tf.expand_dims(excitation, expand_axis)
-  return excitation
+  return expand_spatial_dims(excitation, data_format)
 
 
 def avg_squeeze_and_excitation(x, data_format):
